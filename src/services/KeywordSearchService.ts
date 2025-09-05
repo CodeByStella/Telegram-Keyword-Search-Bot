@@ -40,7 +40,7 @@ export class KeywordSearchService {
     for (const keyword of user.keywords) {
       if (this.isKeywordMatch(messageText, keyword)) {
         const match: KeywordMatch = {
-          userId: user.id,
+          userId: user._id!.toString(),
           keyword,
           message: messageContext.text,
           chatId: messageContext.chatId,
@@ -48,6 +48,7 @@ export class KeywordSearchService {
           timestamp: messageContext.timestamp,
           chatTitle: messageContext.chatTitle,
           senderName: messageContext.senderName,
+          messageLength: messageContext.messageLength,
         };
 
         // Save the match to database
@@ -105,7 +106,7 @@ export class KeywordSearchService {
       const cutoffDate = new Date();
       cutoffDate.setDate(cutoffDate.getDate() - days);
 
-      const matches = await this.keywordMatchModel.getMatchesByUser(userId, 1000);
+      const matches = await this.keywordMatchModel.getMatchesByUser(userId.toString(), 1000);
       const recentMatches = matches.filter(match => match.timestamp >= cutoffDate);
 
       const keywordCounts: Record<string, number> = {};
@@ -116,7 +117,18 @@ export class KeywordSearchService {
       return {
         totalMatches: recentMatches.length,
         keywordCounts,
-        recentMatches: recentMatches.slice(0, 10), // Last 10 matches
+        recentMatches: recentMatches.slice(0, 10).map(match => ({
+          _id: match._id?.toString(),
+          userId: match.userId,
+          keyword: match.keyword,
+          message: match.message,
+          chatId: match.chatId,
+          messageId: match.messageId,
+          timestamp: match.timestamp,
+          chatTitle: match.chatTitle,
+          senderName: match.senderName,
+          messageLength: match.messageLength,
+        })), // Last 10 matches
       };
     } catch (error) {
       logger.error(`Error getting keyword stats for user ${userId}:`, error);
@@ -145,7 +157,7 @@ export class KeywordSearchService {
 
       recentMatches.forEach(match => {
         keywordCounts[match.keyword] = (keywordCounts[match.keyword] || 0) + 1;
-        userIds.add(match.userId);
+        userIds.add(parseInt(match.userId));
       });
 
       const topKeywords = Object.entries(keywordCounts)

@@ -25,15 +25,26 @@ export class TelegramBotService {
 
 This bot helps you monitor Telegram groups for specific keywords and get notifications when they're mentioned.
 
-Commands:
+📋 Commands:
 /start - Show this help message
 /login - Login with your phone number
 /logout - Logout from the bot
+
+🔍 Keyword Management:
 /addkeyword <keyword> - Add a keyword to monitor
 /removekeyword <keyword> - Remove a keyword
 /listkeywords - List your monitored keywords
-/setnotification <chat_id> - Set notification chat
+
+⚙️ Settings:
+/setlimit <number> - Set character limit for monitoring (1-1000)
+/addgroup <group_id> - Add notification group
+/removegroup <group_id> - Remove notification group
+/listgroups - List notification groups
+/setgroups <group_id1,group_id2,...> - Set multiple notification groups
+
+📊 Status:
 /status - Check your status
+/stats - View keyword match statistics
 /help - Show this help message
 
 To get started, use /login to authenticate with your phone number.
@@ -72,7 +83,7 @@ To get started, use /login to authenticate with your phone number.
       }
 
       try {
-        const user = await this.userModel.getUserById(ctx.from.id);
+        const user = await this.userModel.getUserByTelegramId(ctx.from.id);
         if (!user || !user.isAuthenticated) {
           ctx.reply('Please login first using /login');
           return;
@@ -99,7 +110,7 @@ To get started, use /login to authenticate with your phone number.
       }
 
       try {
-        const user = await this.userModel.getUserById(ctx.from.id);
+        const user = await this.userModel.getUserByTelegramId(ctx.from.id);
         if (!user || !user.isAuthenticated) {
           ctx.reply('Please login first using /login');
           return;
@@ -120,7 +131,7 @@ To get started, use /login to authenticate with your phone number.
     // List keywords command
     this.bot.command('listkeywords', async (ctx) => {
       try {
-        const user = await this.userModel.getUserById(ctx.from.id);
+        const user = await this.userModel.getUserByTelegramId(ctx.from.id);
         if (!user || !user.isAuthenticated) {
           ctx.reply('Please login first using /login');
           return;
@@ -148,13 +159,13 @@ To get started, use /login to authenticate with your phone number.
       }
 
       try {
-        const user = await this.userModel.getUserById(ctx.from.id);
+        const user = await this.userModel.getUserByTelegramId(ctx.from.id);
         if (!user || !user.isAuthenticated) {
           ctx.reply('Please login first using /login');
           return;
         }
 
-        const success = await this.userModel.setNotificationChat(ctx.from.id, Number(chatId));
+        const success = await this.userModel.setNotificationGroups(ctx.from.id, [Number(chatId)]);
         if (success) {
           ctx.reply(`Notification chat set to: ${chatId}`);
         } else {
@@ -166,10 +177,178 @@ To get started, use /login to authenticate with your phone number.
       }
     });
 
+    // Set character limit command
+    this.bot.command('setlimit', async (ctx) => {
+      const limit = parseInt(ctx.message.text.split(' ')[1]);
+      if (!limit || isNaN(limit) || limit < 1 || limit > 1000) {
+        ctx.reply('Please provide a valid character limit between 1 and 1000. Usage: /setlimit <number>');
+        return;
+      }
+
+      try {
+        const user = await this.userModel.getUserByTelegramId(ctx.from.id);
+        if (!user || !user.isAuthenticated) {
+          ctx.reply('Please login first using /login');
+          return;
+        }
+
+        const success = await this.userModel.setCharacterLimit(ctx.from.id, limit);
+        if (success) {
+          ctx.reply(`Character limit set to ${limit} characters. Only messages with ${limit} characters or less will be monitored.`);
+        } else {
+          ctx.reply('Failed to set character limit. Please try again.');
+        }
+      } catch (error) {
+        logger.error('Set limit error:', error);
+        ctx.reply('An error occurred while setting character limit. Please try again.');
+      }
+    });
+
+    // Add notification group command
+    this.bot.command('addgroup', async (ctx) => {
+      const groupId = parseInt(ctx.message.text.split(' ')[1]);
+      if (!groupId || isNaN(groupId)) {
+        ctx.reply('Please provide a valid group ID. Usage: /addgroup <group_id>');
+        return;
+      }
+
+      try {
+        const user = await this.userModel.getUserByTelegramId(ctx.from.id);
+        if (!user || !user.isAuthenticated) {
+          ctx.reply('Please login first using /login');
+          return;
+        }
+
+        const success = await this.userModel.addNotificationGroup(ctx.from.id, groupId);
+        if (success) {
+          ctx.reply(`Notification group ${groupId} added successfully!`);
+        } else {
+          ctx.reply(`Group ${groupId} is already in your notification list.`);
+        }
+      } catch (error) {
+        logger.error('Add group error:', error);
+        ctx.reply('An error occurred while adding notification group. Please try again.');
+      }
+    });
+
+    // Remove notification group command
+    this.bot.command('removegroup', async (ctx) => {
+      const groupId = parseInt(ctx.message.text.split(' ')[1]);
+      if (!groupId || isNaN(groupId)) {
+        ctx.reply('Please provide a valid group ID. Usage: /removegroup <group_id>');
+        return;
+      }
+
+      try {
+        const user = await this.userModel.getUserByTelegramId(ctx.from.id);
+        if (!user || !user.isAuthenticated) {
+          ctx.reply('Please login first using /login');
+          return;
+        }
+
+        const success = await this.userModel.removeNotificationGroup(ctx.from.id, groupId);
+        if (success) {
+          ctx.reply(`Notification group ${groupId} removed successfully!`);
+        } else {
+          ctx.reply(`Group ${groupId} was not found in your notification list.`);
+        }
+      } catch (error) {
+        logger.error('Remove group error:', error);
+        ctx.reply('An error occurred while removing notification group. Please try again.');
+      }
+    });
+
+    // List notification groups command
+    this.bot.command('listgroups', async (ctx) => {
+      try {
+        const user = await this.userModel.getUserByTelegramId(ctx.from.id);
+        if (!user || !user.isAuthenticated) {
+          ctx.reply('Please login first using /login');
+          return;
+        }
+
+        if (user.notificationGroups.length === 0) {
+          ctx.reply('You have no notification groups configured. Use /addgroup to add some.');
+          return;
+        }
+
+        const groupsList = user.notificationGroups.map((groupId, index) => `${index + 1}. ${groupId}`).join('\n');
+        ctx.reply(`Your notification groups:\n\n${groupsList}`);
+      } catch (error) {
+        logger.error('List groups error:', error);
+        ctx.reply('An error occurred while fetching your notification groups. Please try again.');
+      }
+    });
+
+    // Set multiple notification groups command
+    this.bot.command('setgroups', async (ctx) => {
+      const groupsText = ctx.message.text.split(' ').slice(1).join(' ');
+      if (!groupsText) {
+        ctx.reply('Please provide group IDs separated by commas. Usage: /setgroups <group_id1,group_id2,...>');
+        return;
+      }
+
+      try {
+        const groupIds = groupsText.split(',').map(id => parseInt(id.trim())).filter(id => !isNaN(id));
+        if (groupIds.length === 0) {
+          ctx.reply('Please provide valid group IDs separated by commas.');
+          return;
+        }
+
+        const user = await this.userModel.getUserByTelegramId(ctx.from.id);
+        if (!user || !user.isAuthenticated) {
+          ctx.reply('Please login first using /login');
+          return;
+        }
+
+        const success = await this.userModel.setNotificationGroups(ctx.from.id, groupIds);
+        if (success) {
+          ctx.reply(`Notification groups set to: ${groupIds.join(', ')}`);
+        } else {
+          ctx.reply('Failed to set notification groups. Please try again.');
+        }
+      } catch (error) {
+        logger.error('Set groups error:', error);
+        ctx.reply('An error occurred while setting notification groups. Please try again.');
+      }
+    });
+
+    // Stats command
+    this.bot.command('stats', async (ctx) => {
+      try {
+        const user = await this.userModel.getUserByTelegramId(ctx.from.id);
+        if (!user || !user.isAuthenticated) {
+          ctx.reply('Please login first using /login');
+          return;
+        }
+
+        const stats = await this.keywordMatchModel.getMatchStats(user._id!.toString(), 7);
+        const settings = await this.userModel.getUserSettings(ctx.from.id);
+
+        const statsMessage = `
+📊 Your Statistics (Last 7 days):
+
+🔍 Total Matches: ${stats.totalMatches}
+📏 Average Message Length: ${stats.averageMessageLength} chars
+⚙️ Character Limit: ${settings?.characterLimit || 100} chars
+📝 Keywords: ${settings?.keywords.length || 0}
+🔔 Notification Groups: ${settings?.notificationGroups.length || 0}
+
+🏆 Top Keywords:
+${stats.topKeywords.slice(0, 5).map((item, index) => `${index + 1}. ${item.keyword} (${item.count})`).join('\n') || 'No matches yet'}
+        `;
+
+        ctx.reply(statsMessage);
+      } catch (error) {
+        logger.error('Stats error:', error);
+        ctx.reply('An error occurred while fetching statistics. Please try again.');
+      }
+    });
+
     // Status command
     this.bot.command('status', async (ctx) => {
       try {
-        const user = await this.userModel.getUserById(ctx.from.id);
+        const user = await this.userModel.getUserByTelegramId(ctx.from.id);
         if (!user) {
           ctx.reply('You are not registered. Use /login to get started.');
           return;
@@ -177,13 +356,15 @@ To get started, use /login to authenticate with your phone number.
 
         const status = user.isAuthenticated ? '✅ Authenticated' : '❌ Not authenticated';
         const keywordsCount = user.keywords.length;
-        const notificationChat = user.notificationChatId ? `Chat ID: ${user.notificationChatId}` : 'Not set';
+        const groupsCount = user.notificationGroups.length;
+        const characterLimit = user.characterLimit;
 
         const statusMessage = `
 📊 Your Status:
 ${status}
 📝 Monitored keywords: ${keywordsCount}
-🔔 Notification chat: ${notificationChat}
+⚙️ Character limit: ${characterLimit} chars
+🔔 Notification groups: ${groupsCount}
 
 Use /login to authenticate or /addkeyword to add keywords to monitor.
         `;
@@ -226,19 +407,22 @@ Use /login to authenticate or /addkeyword to add keywords to monitor.
             if (!user) {
               // Create new user
               user = await this.userModel.createUser({
-                id: userId,
+                telegramId: userId,
                 phoneNumber: authData.phoneNumber,
                 isAuthenticated: true,
                 keywords: [],
+                characterLimit: 100,
+                notificationGroups: [],
+                isActive: true,
               });
             } else {
               // Update existing user
-              await this.userModel.updateUser(userId, { isAuthenticated: true });
+              await this.userModel.updateUser(user.telegramId, { isAuthenticated: true });
             }
 
             // Save auth session
             await this.userModel.saveAuthSession({
-              userId: userId,
+              userId: user._id!.toString(),
               phoneNumber: authData.phoneNumber,
               sessionString: '', // This would be the actual session string
               isActive: true,

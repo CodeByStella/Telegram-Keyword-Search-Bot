@@ -1,16 +1,20 @@
 export interface User {
-  id: number;
+  _id?: string;
+  telegramId: number;
   phoneNumber: string;
   isAuthenticated: boolean;
   sessionString?: string;
   keywords: string[];
-  notificationChatId?: number;
+  characterLimit: number; // New: character limit for keyword monitoring
+  notificationGroups: number[]; // New: multiple groups for notifications
+  isActive: boolean;
   createdAt: Date;
   updatedAt: Date;
 }
 
 export interface KeywordMatch {
-  userId: number;
+  _id?: string;
+  userId: string;
   keyword: string;
   message: string;
   chatId: number;
@@ -18,6 +22,7 @@ export interface KeywordMatch {
   timestamp: Date;
   chatTitle?: string;
   senderName?: string;
+  messageLength: number; // New: track message length
 }
 
 export interface BotConfig {
@@ -31,7 +36,8 @@ export interface BotConfig {
 }
 
 export interface AuthSession {
-  userId: number;
+  _id?: string;
+  userId: string;
   phoneNumber: string;
   sessionString: string;
   isActive: boolean;
@@ -39,10 +45,12 @@ export interface AuthSession {
 }
 
 export interface NotificationSettings {
-  userId: number;
+  _id?: string;
+  userId: string;
   enabled: boolean;
-  chatId?: number;
+  notificationGroups: number[];
   keywords: string[];
+  characterLimit: number;
   muteUntil?: Date;
 }
 
@@ -54,4 +62,13 @@ export interface MessageContext {
   senderName?: string;
   chatTitle?: string;
   timestamp: Date;
+  messageLength: number; // New: track message length
+}
+
+export interface KeywordMonitoringSettings {
+  userId: string;
+  keywords: string[];
+  characterLimit: number;
+  notificationGroups: number[];
+  isEnabled: boolean;
 }
