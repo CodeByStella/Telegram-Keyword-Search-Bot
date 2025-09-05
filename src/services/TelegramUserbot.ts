@@ -1,38 +1,30 @@
 import { TelegramClient } from 'telegram';
-import { StringSession } from 'telegram/sessions';
-import { config } from '../config';
 import { UserModel } from '../models/UserModel';
 import { KeywordMatchModel } from '../models/KeywordMatchModel';
 import { TelegramBotService } from './TelegramBot';
+import { TelegramAuthService } from './TelegramAuthService';
 import { MessageContext } from '../types';
 import logger from '../utils/logger';
 
 export class TelegramUserbotService {
-  private client: TelegramClient;
+  private client: TelegramClient | null = null;
   private userModel: UserModel;
   private keywordMatchModel: KeywordMatchModel;
   private botService: TelegramBotService;
+  private authService: TelegramAuthService;
   private isRunning: boolean = false;
   private activeUsers: Map<string, any> = new Map();
 
   constructor(botService: TelegramBotService) {
-    this.client = new TelegramClient(
-      new StringSession(''), // Will be set when user authenticates
-      config.apiId,
-      config.apiHash,
-      {
-        connectionRetries: 5,
-      }
-    );
     this.userModel = new UserModel();
     this.keywordMatchModel = new KeywordMatchModel();
     this.botService = botService;
-    this.setupEventHandlers();
+    this.authService = new TelegramAuthService();
   }
 
-  private setupEventHandlers(): void {
+  private setupEventHandlers(client: TelegramClient): void {
     // Listen for new messages
-    this.client.addEventHandler(async (event: any) => {
+    client.addEventHandler(async (event: any) => {
       try {
         if (event.className === 'UpdateNewMessage') {
           await this.handleNewMessage(event);
@@ -43,7 +35,7 @@ export class TelegramUserbotService {
     });
 
     // Listen for message edits
-    this.client.addEventHandler(async (event: any) => {
+    client.addEventHandler(async (event: any) => {
       try {
         if (event.className === 'UpdateEditMessage') {
           await this.handleEditMessage(event);
@@ -131,6 +123,8 @@ export class TelegramUserbotService {
   }
 
   private async getChatInfo(chatId: string): Promise<{ title?: string } | null> {
+    if (!this.client) return null;
+    
     try {
       const chat = await this.client.getEntity(chatId);
       return {
@@ -143,6 +137,8 @@ export class TelegramUserbotService {
   }
 
   private async getSenderName(senderId: string): Promise<string | undefined> {
+    if (!this.client) return undefined;
+    
     try {
       const user = await this.client.getEntity(senderId);
       return (user as any).firstName || (user as any).username || 'Unknown User';
@@ -235,24 +231,28 @@ Time: ${messageContext.timestamp.toLocaleString()}
         return;
       }
 
-      await this.client.start({
-        phoneNumber: async () => {
-          // This will be handled by the bot authentication flow
-          throw new Error('Phone number should be provided through bot authentication');
-        },
-        phoneCode: async () => {
-          // This will be handled by the bot authentication flow
-          throw new Error('Phone code should be provided through bot authentication');
-        },
-        onError: (err: any) => {
-          logger.error('Userbot error:', err);
-        },
-      });
+      // Get all authenticated users and start their userbots
+      const activeUsers = await this.userModel.getAllActiveUsers();
+      
+      for (const user of activeUsers) {
+        if (user.sessionString) {
+          try {
+            const client = await this.authService.createAuthenticatedClient(user.telegramId);
+            if (client) {
+              this.setupEventHandlers(client);
+              this.activeUsers.set(user._id!.toString(), client);
+              logger.info(`Started userbot for user ${user.telegramId}`);
+            }
+          } catch (error) {
+            logger.error(`Failed to start userbot for user ${user.telegramId}:`, error);
+          }
+        }
+      }
 
       this.isRunning = true;
-      logger.info('Telegram userbot started successfully');
+      logger.info('Telegram userbot service started successfully');
     } catch (error) {
-      logger.error('Failed to start Telegram userbot:', error);
+      logger.error('Failed to start Telegram userbot service:', error);
       throw error;
     }
   }
@@ -263,43 +263,47 @@ Time: ${messageContext.timestamp.toLocaleString()}
         return;
       }
 
-      await this.client.disconnect();
+      // Disconnect all active userbots
+      for (const [userId, client] of this.activeUsers) {
+        try {
+          await client.disconnect();
+          logger.info(`Stopped userbot for user ${userId}`);
+        } catch (error) {
+          logger.error(`Error stopping userbot for user ${userId}:`, error);
+        }
+      }
+
+      this.activeUsers.clear();
       this.isRunning = false;
-      logger.info('Telegram userbot stopped');
+      logger.info('Telegram userbot service stopped');
     } catch (error) {
-      logger.error('Error stopping Telegram userbot:', error);
+      logger.error('Error stopping Telegram userbot service:', error);
       throw error;
     }
   }
 
-  async authenticateUser(telegramId: number, phoneNumber: string, sessionString: string): Promise<boolean> {
+  async startUserbotForUser(telegramId: number): Promise<boolean> {
     try {
-      // Update the client with the user's session
-      this.client = new TelegramClient(
-        new StringSession(sessionString),
-        config.apiId,
-        config.apiHash,
-        {
-          connectionRetries: 5,
-        }
-      );
-
-      // Test the connection
-      await this.client.connect();
-      const me = await this.client.getMe();
-      
-      if (me.id.toString() === telegramId.toString()) {
-        logger.info(`User ${telegramId} authenticated successfully`);
-        return true;
-      } else {
-        logger.error(`Session mismatch for user ${telegramId}`);
+      const user = await this.userModel.getUserByTelegramId(telegramId);
+      if (!user || !user.sessionString) {
         return false;
       }
+
+      const client = await this.authService.createAuthenticatedClient(telegramId);
+      if (client) {
+        this.setupEventHandlers(client);
+        this.activeUsers.set(user._id!.toString(), client);
+        logger.info(`Started userbot for user ${telegramId}`);
+        return true;
+      }
+
+      return false;
     } catch (error) {
-      logger.error(`Authentication failed for user ${telegramId}:`, error);
+      logger.error(`Failed to start userbot for user ${telegramId}:`, error);
       return false;
     }
   }
+
 
   isUserbotRunning(): boolean {
     return this.isRunning;

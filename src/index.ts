@@ -15,6 +15,9 @@ class Application {
     this.botService = new TelegramBotService();
     this.userbotService = new TelegramUserbotService(this.botService);
     this.keywordSearchService = new KeywordSearchService();
+    
+    // Connect the services
+    this.botService.setUserbotService(this.userbotService);
   }
 
   async start(): Promise<void> {
